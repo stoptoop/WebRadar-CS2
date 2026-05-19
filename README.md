@@ -1,4 +1,4 @@
-<h1 align="center">📺 Radar Hack</h1>
+<h1 align="center">📺 WebRadar</h1>
 
 <p align="center">
   <img src="maps/back.png" alt="Logo" />
