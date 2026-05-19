@@ -1,7 +1,7 @@
 <h1 align="center">📺 Radar Hack</h1>
 
 <p align="center">
-  <img src="maps/back.png" alt="Logo" width="200" />
+  <img src="maps/back.png" alt="Logo" />
 </p>
 
 <p align="center">
