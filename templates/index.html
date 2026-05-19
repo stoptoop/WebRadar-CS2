@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CS2 Web Radar</title>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<link rel="icon" type="image/png" href="maps/logo.png">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ct:      #4db8ff;
+  --ct-glow: rgba(77,184,255,0.55);
+  --t:       #ff8c42;
+  --t-glow:  rgba(255,140,66,0.55);
+  --bg:      #050c18;
+  --glass:   rgba(8,15,28,0.78);
+  --border:  rgba(255,255,255,0.08);
+  --shine:   rgba(255,255,255,0.05);
+  --accent:  #00e5ff;
+  --text:    #cce0f5;
+  --muted:   rgba(200,221,245,0.38);
+  --green:   #00e676;
+  --gold:    #ffd166;
+  --red:     #ff3f3f;
+  --radar:   660px;
+  --panel:   210px;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Rajdhani', sans-serif;
+  color: var(--text);
+  touch-action: none;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 70% 55% at 15% 25%, rgba(0,65,140,0.22) 0%, transparent 65%),
+    radial-gradient(ellipse 55% 45% at 85% 78%, rgba(0,150,220,0.13) 0%, transparent 60%);
+  animation: bgp 10s ease-in-out infinite alternate;
+  pointer-events: none; z-index: 0;
+}
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,229,255,0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,0.022) 1px, transparent 1px);
+  background-size: 44px 44px;
+  pointer-events: none; z-index: 0;
+}
+@keyframes bgp { from{opacity:.55} to{opacity:1} }
+
+
+.layout {
+  position: relative; z-index: 1;
+  display: flex; gap: 0;
+  align-items: stretch;
+}
+
+
+.team-panel {
+  width: var(--panel);
+  display: flex; flex-direction: column;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  overflow: hidden; position: relative;
+}
+.team-panel::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+}
+.ct-panel { border-radius: 20px 0 0 20px; border-right: none; border-top: 1.5px solid rgba(77,184,255,.22); }
+.ct-panel::after { background: linear-gradient(90deg, transparent, var(--ct), transparent); opacity:.45; }
+.t-panel  { border-radius: 0 20px 20px 0; border-left: none;  border-top: 1.5px solid rgba(255,140,66,.22); }
+.t-panel::after  { background: linear-gradient(90deg, transparent, var(--t), transparent); opacity:.45; }
+
+.team-header {
+  padding: 16px 14px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.055);
+  display: flex; flex-direction: column; gap: 2px;
+  position: relative;
+}
+.tlabel { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; font-family: 'Share Tech Mono', monospace; color: var(--muted); }
+.tname  { font-size: 16px; font-weight: 700; }
+.ct-panel .tname { color: var(--ct); text-shadow: 0 0 14px var(--ct-glow); }
+.t-panel  .tname { color: var(--t);  text-shadow: 0 0 14px var(--t-glow);  }
+.alive-badge {
+  position: absolute; top: 14px; right: 12px;
+  font-size: 34px; font-weight: 700;
+  font-family: 'Share Tech Mono', monospace;
+  opacity: .17; line-height: 1;
+}
+.ct-panel .alive-badge { color: var(--ct); }
+.t-panel  .alive-badge { color: var(--t);  }
+
+.plist {
+  flex: 1; display: flex; flex-direction: column;
+  gap: 5px; padding: 8px; overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+
+.pcard {
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.025);
+  padding: 7px 9px 6px;
+  display: flex; flex-direction: column; gap: 5px;
+  position: relative; overflow: hidden;
+  transition: opacity .3s, filter .3s, transform .3s;
+  flex-shrink: 0;
+}
+
+
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cardFadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+}
+
+.pcard.entering {
+  animation: cardFadeIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.pcard.exiting {
+  animation: cardFadeOut 0.25s ease-in forwards;
+  pointer-events: none;
+}
+.pcard::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 2.5px;
+  border-radius: 2px 0 0 2px;
+}
+.ct-panel .pcard::before { background: var(--ct); opacity: .55; }
+.t-panel  .pcard::before { background: var(--t);  opacity: .55; }
+.pcard.dead { opacity: .25; filter: grayscale(1); }
+
+.pcard-top { display: flex; align-items: center; gap: 6px; }
+.pdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.ct-panel .pdot { background: var(--ct); box-shadow: 0 0 6px var(--ct-glow); }
+.t-panel  .pdot { background: var(--t);  box-shadow: 0 0 6px var(--t-glow); }
+.pname {
+  flex: 1; font-family: 'Share Tech Mono', monospace;
+  font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pmoney { font-family: 'Share Tech Mono', monospace; font-size: 9.5px; color: var(--gold); opacity: .9; white-space: nowrap; }
+.hp-row { display: flex; align-items: center; gap: 5px; }
+.hp-bar-wrap { flex: 1; height: 3px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+.hp-bar { height: 100%; border-radius: 3px; transition: width .4s cubic-bezier(.22,1,.36,1), background .4s; }
+.hp-num { font-family: 'Share Tech Mono', monospace; font-size: 9px; width: 22px; text-align: right; opacity: .6; }
+.ct-panel .hp-num { color: var(--ct); }
+.t-panel  .hp-num { color: var(--t); }
+.equip-row { display: flex; align-items: center; gap: 5px; }
+.armor-bar-wrap { flex: 1; height: 2px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+.armor-bar { height: 100%; border-radius: 2px; background: rgba(160,210,255,0.5); transition: width .4s; }
+.equip-icons { display: flex; gap: 3px; margin-left: auto; align-items: center; }
+.ico {
+  display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 4px;
+  font-size: 10px; line-height: 1; transition: opacity .3s;
+}
+.ico.off    { opacity: .11; }
+.ico.helmet { background: rgba(77,184,255,0.18);  color: var(--ct); }
+.ico.vest   { background: rgba(255,255,255,0.09); color: #aac; }
+.ico.defuse { background: rgba(0,230,118,0.18);   color: var(--green); }
+
+.weapon-icon {
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+}
+.weapon-icon img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+  opacity: .85;
+}
+
+
+
+.radar-wrap {
+  position: relative;
+  width: var(--radar);
+  aspect-ratio: 1 / 1;
+  background: var(--glass);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 0 80px rgba(0,0,0,.85), inset 0 0 60px rgba(0,229,255,0.02);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.radar-wrap::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.045) 0%, transparent 45%);
+  pointer-events: none; z-index: 20;
+}
+
+
+
+.status-block {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(8px);
+}
+
+.wifi-icon {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 18px;
+  height: 14px;
+  gap: 2px;
+}
+
+.wifi-bar {
+  width: 4px;
+  background: #888;
+  border-radius: 1px;
+  transition: background 0.4s, box-shadow 0.4s;
+}
+
+.wifi-bar:nth-child(1) { height: 4px; }
+.wifi-bar:nth-child(2) { height: 7px; }
+.wifi-bar:nth-child(3) { height: 10px; }
+.wifi-bar:nth-child(4) { height: 13px; }
+
+.wifi-icon.connected .wifi-bar { background: var(--green); box-shadow: 0 0 8px 1px var(--green); }
+
+.wifi-icon.medium .wifi-bar { background: var(--green); box-shadow: 0 0 8px 1px var(--green); }
+
+.wifi-icon.slow .wifi-bar { background: var(--gold); box-shadow: 0 0 8px 1px var(--gold); }
+.wifi-icon.slow .wifi-bar:nth-child(4) { background: #444; box-shadow: none; }
+
+.wifi-icon.bad .wifi-bar { background: var(--red); box-shadow: 0 0 8px 1px var(--red); }
+.wifi-icon.bad .wifi-bar:nth-child(4),
+.wifi-icon.bad .wifi-bar:nth-child(3) { background: #444; box-shadow: none; }
+
+.wifi-icon.no-data .wifi-bar { background: var(--red); box-shadow: 0 0 8px 1px var(--red); }
+.wifi-icon.disconnected .wifi-bar { background: #666; box-shadow: 0 0 4px 1px #666; }
+
+
+.lag-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.lag-value {
+  min-width: 22px;
+  text-align: right;
+}
+
+
+
+#map-placeholder {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 16px;
+  z-index: 5;
+  opacity: 1; transition: opacity .4s;
+}
+#map-placeholder.hidden { opacity: 0; pointer-events: none; }
+
+.placeholder-ring {
+  position: relative; width: 64px; height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(45deg, transparent 40%, rgba(0,229,255,0.5));
+  animation: ring-spin 1.2s cubic-bezier(0.8, 0.3, 0.3, 0.9) infinite;
+}
+
+@keyframes ring-spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.placeholder-ring::before {
+  content: '';
+  position: absolute; top: 5px; left: 5px; right: 5px; bottom: 5px;
+  background: var(--bg); border-radius: 50%; z-index: 2;
+}
+.placeholder-ring::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(45deg, transparent 40%, rgba(0,229,255,0.4));
+  border-radius: 50%; filter: blur(10px); z-index: 1;
+}
+.placeholder-text {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px; letter-spacing: 2.5px;
+  color: rgba(0,229,255,0.35);
+  text-transform: uppercase;
+  text-align: center;
+}
+
+
+
+#map-img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  opacity: .5;
+  transition: opacity .6s;
+}
+.corner{position:absolute;width:20px;height:20px;z-index:26}
+.corner::before,.corner::after{content:'';position:absolute;background:var(--accent);opacity:.6;border-radius:1px}
+.corner::before{width:2px;height:100%}
+.corner::after{width:100%;height:2px}
+.corner.tl{top:10px;left:10px}
+.corner.tr{top:10px;right:10px;transform:scaleX(-1)}
+.corner.bl{bottom:10px;left:10px;transform:scaleY(-1)}
+.corner.br{bottom:10px;right:10px;transform:scale(-1)}
+#map-label {
+  position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: 2px;
+  color: var(--accent); opacity: .28; pointer-events: none; z-index: 25; white-space: nowrap;
+}
+#players-layer {
+  position: absolute; inset: 0; z-index: 30; pointer-events: none;
+}
+
+.player {
+  position: absolute;
+  left: 0; top: 0;
+  z-index: 30; pointer-events: none;
+  will-change: transform;
+  transition: transform .18s cubic-bezier(.22,1,.36,1);
+}
+.player-body {
+  position: relative; width: 14px; height: 14px;
+  transition: transform .18s cubic-bezier(.22,1,.36,1);
+}
+.player-circle { width: 14px; height: 14px; border-radius: 50%; position: absolute; top: 0; left: 0; }
+.player.ct .player-circle {
+  background: radial-gradient(circle at 35% 35%, #b8e4ff, var(--ct));
+  box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 0 12px var(--ct-glow);
+}
+.player.t .player-circle {
+  background: radial-gradient(circle at 35% 35%, #ffd4ae, var(--t));
+  box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 0 12px var(--t-glow);
+}
+.player-arrow {
+  position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+}
+.player.ct .player-arrow { border-bottom: 8px solid var(--ct); }
+.player.t  .player-arrow { border-bottom: 8px solid var(--t); }
+.player-label {
+  position: absolute; top: -22px; left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font-family: 'Share Tech Mono', monospace; font-size: 9px;
+  padding: 1px 5px; border-radius: 3px;
+  background: rgba(4,9,18,.8); border: 1px solid rgba(255,255,255,.07);
+}
+.player.ct .player-label { color: var(--ct); }
+.player.t  .player-label { color: var(--t); }
+.player-hp-wrap {
+  position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%);
+  width: 28px; height: 2.5px;
+  background: rgba(255,255,255,.09); border-radius: 2px; overflow: hidden;
+}
+.player-hp-bar { height: 100%; border-radius: 2px; transition: width .35s, background .35s; }
+@keyframes spawnIn {
+  from{opacity:0;transform:translate(-50%,-50%) scale(.12)}
+  to  {opacity:1;transform:translate(-50%,-50%) scale(1)}
+}
+.player.new { animation: spawnIn .35s cubic-bezier(.22,1,.36,1) forwards; }
+
+.player-weapon-wrap {
+  position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 12px;
+}
+.player-weapon-wrap img {
+  max-width: 100%; max-height: 100%;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+  opacity: .8;
+}
+
+
+
+@media (max-width: 600px) and (orientation: portrait) {
+  body { align-items: flex-start; overflow-y: auto; }
+  
+
+  .layout { flex-direction: column; width: 100vw; }
+
+  :root { --radar: 100vw; --panel: 100vw; }
+
+  .radar-wrap { width: 100vw; aspect-ratio: 1/1; flex-shrink: 0; }
+
+  .ct-panel {
+    order: 1;
+    border-radius: 0; border: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .radar-wrap { order: 2; }
+  .t-panel {
+    order: 3;
+    border-radius: 0; border: none;
+    border-top: 1px solid var(--border);
+  }
+
+  .team-header { padding: 8px 12px 6px; }
+  .alive-badge { font-size: 18px; top: 8px; }
+  .plist { max-height: 130px; overflow-y: auto; gap: 3px; padding: 6px; }
+  .pcard { padding: 5px 8px 4px; gap: 3px; }
+
+  .player-body { width: 10px; height: 10px; }
+  .player-circle { width: 10px; height: 10px; }
+  .player-arrow { top: -9px; border-left-width: 3px; border-right-width: 3px; border-bottom-width: 6px; }
+  .player-label { top: -18px; font-size: 8px; }
+  .player-hp-wrap { bottom: -7px; width: 20px; height: 2px; }
+  .player-weapon-wrap { bottom: -14px; width: 12px; height: 9px; }
+
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  body { align-items: center; overflow: hidden; }
+
+
+  .layout {
+    flex-direction: row;
+    height: 100vh;
+  }
+
+  .player-body { width: 10px; height: 10px; }
+  .player-circle { width: 10px; height: 10px; }
+  .player-arrow { top: -9px; border-left-width: 3px; border-right-width: 3px; border-bottom-width: 6px; }
+  .player-label { top: -18px; font-size: 8px; }
+  .player-hp-wrap { bottom: -7px; width: 20px; height: 2px; }
+
+  .radar-wrap {
+    width: 100vh;
+    height: 100vh;
+    aspect-ratio: unset;
+    flex-shrink: 0;
+  }
+
+  .team-panel {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+  .ct-panel { border-radius: 20px 0 0 20px; }
+  .t-panel  { border-radius: 0 20px 20px 0; }
+
+
+  .team-header { padding: 8px 10px 6px; }
+  .tname  { font-size: 13px; }
+  .alive-badge { font-size: 18px; top: 8px; }
+
+  .plist { gap: 3px; padding: 5px 6px; overflow-y: auto; }
+  .pcard { padding: 4px 7px 3px; gap: 3px; }
+  .pname { font-size: 9.5px; }
+  .pmoney { font-size: 8.5px; }
+  .hp-num { font-size: 8px; }
+  .ico { width: 13px; height: 13px; font-size: 8px; }
+
+
+}
+</style>
+</head>
+<body>
+
+
+<div class="layout">
+  <div class="team-panel ct-panel">
+    <div class="team-header">
+      <div class="tlabel">Team</div>
+      <div class="tname">Counter-Terrorists</div>
+      <div class="alive-badge" id="ct-alive">0</div>
+    </div>
+    <div class="plist" id="ct-list"></div>
+  </div>
+
+  <div class="radar-wrap" id="radar-wrap">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+
+
+    <div class="status-block">
+      <div class="wifi-icon disconnected" id="wifi-icon">
+        <div class="wifi-bar"></div>
+        <div class="wifi-bar"></div>
+        <div class="wifi-bar"></div>
+        <div class="wifi-bar"></div>
+      </div>
+      <div class="lag-indicator offline" id="lag-indicator">
+        <span class="lag-value" id="lag-value">--</span>
+      </div>
+    </div>
+
+    <div id="map-placeholder">
+      <div class="placeholder-ring"></div>
+      <div class="placeholder-text">waiting for map</div>
+    </div>
+
+
+    <img id="map-img" src="" alt="" onerror="this.style.opacity=0">
+    <div id="players-layer"></div>
+    <div id="map-label">&lt;empty&gt;</div>
+  </div>
+
+  <div class="team-panel t-panel">
+    <div class="team-header">
+      <div class="tlabel">Team</div>
+      <div class="tname">Terrorists</div>
+      <div class="alive-badge" id="t-alive">0</div>
+    </div>
+    <div class="plist" id="t-list"></div>
+  </div>
+</div>
+<script>
+const currentMap = { offsetX: -2476, offsetY: 3239, scale: 4.4 };
+
+function getRadarSize() {
+  const el = document.getElementById('radar-wrap');
+  return el.getBoundingClientRect().width;
+}
+
+function worldToRadar(wx, wy) {
+  const size = getRadarSize();
+  const x = (wx - currentMap.offsetX) / currentMap.scale;
+  const y = (currentMap.offsetY - wy) / currentMap.scale;
+  return { px: (x / 1024) * size, py: (y / 1024) * size };
+}
+
+function hpColor(hp) {
+  if (hp > 60) return '#00e676';
+  if (hp > 30) return '#ffd166';
+  return '#ff4040';
+}
+
+
+const mapPlaceholder = document.getElementById('map-placeholder');
+const mapImg   = document.getElementById('map-img');
+const mapLabel = document.getElementById('map-label');
+
+
+const wifiIcon = document.getElementById('wifi-icon');
+const lagIndicator = document.getElementById('lag-indicator');
+const lagValue = document.getElementById('lag-value');
+let connectionStatus = 'disconnected';
+let lastDataTime = 0;
+
+function updateConnectionStatus() {
+  const now = Date.now();
+  const timeSinceData = now - lastDataTime;
+  
+  if (timeSinceData > 5000) {
+    wifiIcon.className = 'wifi-icon disconnected';
+    lagIndicator.className = 'lag-indicator offline';
+    lagValue.textContent = '--';
+  } else if (timeSinceData > 1000) {
+    wifiIcon.className = 'wifi-icon no-data';
+    lagIndicator.className = 'lag-indicator bad';
+    lagValue.textContent = Math.round(timeSinceData / 1000) + 's';
+  } else {
+    const ping = timeSinceData;
+    if (ping < 30) {
+      wifiIcon.className = 'wifi-icon connected';
+      lagIndicator.className = 'lag-indicator good';
+    } else if (ping < 100) {
+      wifiIcon.className = 'wifi-icon medium';
+      lagIndicator.className = 'lag-indicator medium';
+    } else if (ping < 200) {
+      wifiIcon.className = 'wifi-icon slow';
+      lagIndicator.className = 'lag-indicator bad';
+    } else {
+      wifiIcon.className = 'wifi-icon bad';
+      lagIndicator.className = 'lag-indicator bad';
+    }
+    lagValue.textContent = ping + 'ms';
+  }
+}
+
+
+let connectionIntervalId = null;
+function startConnectionInterval() {
+  if (connectionIntervalId) return;
+  connectionIntervalId = setInterval(updateConnectionStatus, 500);
+}
+function stopConnectionInterval() {
+  if (connectionIntervalId) {
+    clearInterval(connectionIntervalId);
+    connectionIntervalId = null;
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopConnectionInterval();
+  } else {
+    startConnectionInterval();
+  }
+});
+startConnectionInterval();
+
+
+function showPlaceholder() {
+  mapPlaceholder.classList.remove('hidden');
+  mapImg.style.opacity = 0;
+  ctList.style.display = 'none';
+  tList.style.display = 'none';
+}
+function hidePlaceholder() {
+  mapPlaceholder.classList.add('hidden');
+  ctList.style.display = '';
+  tList.style.display = '';
+}
+
+const ctList       = document.getElementById('ct-list');
+const tList        = document.getElementById('t-list');
+const ctAlive      = document.getElementById('ct-alive');
+const tAlive       = document.getElementById('t-alive');
+
+
+
+const weaponCache = new Map();
+const WEAPON_CACHE_MAX_SIZE = 60;
+
+function getCachedWeaponSrc(weaponName) {
+  if (weaponCache.has(weaponName)) {
+    const value = weaponCache.get(weaponName);
+    weaponCache.delete(weaponName);
+    weaponCache.set(weaponName, value);
+    return value;
+  }
+
+  const src = `/weapons/${weaponName}.svg`;
+  fetch(src)
+    .then(res => res.ok ? res.text() : null)
+    .then(svg => {
+      if (svg) {
+        if (weaponCache.size >= WEAPON_CACHE_MAX_SIZE) {
+          const firstKey = weaponCache.keys().next().value;
+          weaponCache.delete(firstKey);
+        }
+        weaponCache.set(weaponName, `data:image/svg+xml;base64,${btoa(svg)}`);
+      }
+    })
+    .catch(() => {});
+  return src;
+}
+
+
+const cardPool = new Map();
+
+function makeCard(p, container) {
+  const isCT  = p.team === 3;
+  const hp    = Math.max(0, Math.min(100, p.hp || 0));
+  const armor = Math.max(0, Math.min(100, p.armor || 0));
+  const dead  = p.hp <= 0;
+  const money = p.money != null ? `$${p.money.toLocaleString()}` : '';
+  const weaponName = (p.weapon_name || '').toLowerCase();
+  
+
+  let card = cardPool.get(p.name);
+  let isNew = false;
+  
+  if (!card) {
+    card = document.createElement('div');
+    card.className = 'pcard';
+    card.innerHTML = `
+      <div class="pcard-top">
+        <div class="pdot"></div>
+        <div class="pname"></div>
+        <div class="pmoney"></div>
+      </div>
+      <div class="hp-row">
+        <div class="hp-bar-wrap">
+          <div class="hp-bar"></div>
+        </div>
+        <div class="hp-num"></div>
+      </div>
+      <div class="equip-row">
+        <div class="weapon-icon" style="display:none"><img alt="weapon"></div>
+        <div class="equip-icons">
+          <div class="ico helmet" title="Шлем">⛑</div>
+          <div class="ico vest" title="Броня">🛡</div>
+          <div class="ico defuse" title="Kit" style="display:none">✂</div>
+        </div>
+      </div>
+    `;
+    isNew = true;
+    cardPool.set(p.name, card);
+  }
+  
+
+  card.className = 'pcard' + (dead ? ' dead' : '');
+  
+
+  card.querySelector('.pname').textContent = p.name;
+  card.querySelector('.pmoney').textContent = money;
+  
+
+  const hpBar = card.querySelector('.hp-bar');
+  hpBar.style.width = hp + '%';
+  hpBar.style.background = hpColor(hp);
+  card.querySelector('.hp-num').textContent = p.hp;
+  card.querySelector('.hp-num').style.color = hpColor(hp);
+  
+
+  const weaponIcon = card.querySelector('.weapon-icon');
+  const weaponImg = card.querySelector('.weapon-icon img');
+  if (weaponName) {
+    weaponIcon.style.display = '';
+    const src = getCachedWeaponSrc(weaponName);
+    if (weaponImg.src !== src && !src.startsWith('data:')) {
+      weaponImg.src = src;
+    } else if (src.startsWith('data:')) {
+      if (weaponImg.dataset.weapon !== weaponName) {
+        weaponImg.src = src;
+        weaponImg.dataset.weapon = weaponName;
+      }
+    }
+    weaponImg.alt = weaponName;
+  } else {
+    weaponIcon.style.display = 'none';
+  }
+  
+  const helmetIcon = card.querySelector('.ico.helmet');
+  const vestIcon = card.querySelector('.ico.vest');
+  const defuseIcon = card.querySelector('.ico.defuse');
+  
+  helmetIcon.classList.toggle('off', !p.has_helmet);
+  vestIcon.classList.toggle('off', armor <= 0);
+  
+  if (isCT) {
+    defuseIcon.style.display = '';
+    defuseIcon.classList.toggle('off', !p.has_defuse);
+  } else {
+    defuseIcon.style.display = 'none';
+  }
+  
+  return card;
+}
+
+function updateLists(players) {
+  const cts = players.filter(p => p.team === 3);
+  const ts  = players.filter(p => p.team === 2);
+  ctAlive.textContent = cts.filter(p => p.hp > 0).length;
+  tAlive.textContent  = ts.filter(p => p.hp > 0).length;
+  
+  const sort = arr => [...arr.filter(p => p.hp > 0), ...arr.filter(p => p.hp <= 0)];
+  const sortedCts = sort(cts);
+  const sortedTs = sort(ts);
+  const reorderCards = (container, sortedPlayers) => {
+    const currentOrder = Array.from(container.children);
+    const neededOrder = sortedPlayers.map(p => cardPool.get(p.name)).filter(Boolean);
+    let needsReorder = false;
+    if (currentOrder.length === neededOrder.length) {
+      for (let i = 0; i < currentOrder.length; i++) {
+        if (currentOrder[i] !== neededOrder[i]) {
+          needsReorder = true;
+          break;
+        }
+      }
+    } else {
+      needsReorder = true;
+    }
+    
+    if (needsReorder) {
+      // Move existing nodes to new positions
+      neededOrder.forEach((card, index) => {
+        const currentCard = container.children[index];
+        if (currentCard !== card) {
+          container.insertBefore(card, container.children[index] || null);
+        }
+      });
+    }
+  };
+
+
+  const currentNames = new Set();
+
+  [...sortedCts, ...sortedTs].forEach(p => {
+    currentNames.add(p.name);
+    makeCard(p, null);
+  });
+
+  reorderCards(ctList, sortedCts);
+
+  reorderCards(tList, sortedTs);
+
+  for (const [name, card] of cardPool) {
+    if (!currentNames.has(name)) {
+      cardPool.delete(name);
+    }
+  }
+}
+
+const layer = document.getElementById('players-layer');
+const dots  = {};
+
+function getOrCreate(id) {
+  if (dots[id]) return dots[id];
+  const el = document.createElement('div');
+  el.className = 'player new';
+  el.innerHTML = `
+    <div class="player-label"></div>
+    <div class="player-body">
+      <div class="player-circle"></div>
+      <div class="player-arrow"></div>
+    </div>
+    <div class="player-hp-wrap"><div class="player-hp-bar"></div></div>
+    <div class="player-weapon-wrap"><img alt="weapon"></div>
+  `;
+  layer.appendChild(el);
+  dots[id] = el;
+  setTimeout(() => el.classList.remove('new'), 400);
+  return el;
+}
+
+function renderDots(players) {
+  const alive = players.filter(p => p.hp > 0);
+  const seen  = new Set();
+  alive.forEach(p => {
+    const id  = p.name || ('p' + p.team + Math.round(p.x));
+    seen.add(id);
+    const cls = p.team === 3 ? 'ct' : 't';
+    const el  = getOrCreate(id);
+    el.classList.remove('ct', 't');
+    el.classList.add(cls);
+    const { px, py } = worldToRadar(p.x, p.y);
+
+    el.style.transform = `translate(calc(${px}px - 50%), calc(${py}px - 50%))`;
+    const yawDeg = (p.yaw != null) ? -(p.yaw + 270) : 0;
+    el.querySelector('.player-body').style.transform = `rotate(${yawDeg}deg)`;
+    el.querySelector('.player-label').textContent = p.name;
+    const hp  = Math.max(0, Math.min(100, p.hp));
+    const bar = el.querySelector('.player-hp-bar');
+    bar.style.width      = hp + '%';
+    bar.style.background = hpColor(hp);
+    
+    const weaponWrap = el.querySelector('.player-weapon-wrap');
+    const weaponImg = el.querySelector('.player-weapon-wrap img');
+    const weaponName = (p.weapon_name || '').toLowerCase();
+    if (weaponName) {
+      weaponWrap.style.display = '';
+      const src = getCachedWeaponSrc(weaponName);
+      if (weaponImg.dataset.weapon !== weaponName) {
+        weaponImg.src = src;
+        weaponImg.dataset.weapon = weaponName;
+      }
+    } else {
+      weaponWrap.style.display = 'none';
+    }
+  });
+  Object.keys(dots).forEach(id => {
+    if (!seen.has(id)) { dots[id].remove(); delete dots[id]; }
+  });
+}
+
+let lastPlayers = [];
+function renderPlayers(players) {
+  lastPlayers = players;
+  lastDataTime = Date.now();
+  updateLists(players);
+  renderDots(players);
+}
+
+
+window.addEventListener('resize', () => {
+  if (lastPlayers.length) renderDots(lastPlayers);
+});
+
+
+let currentMapName = null; 
+function applyMapUpdate(data) {
+  if (!data) return;
+  if (data.offset_x  != null) currentMap.offsetX = data.offset_x;
+  if (data.offset_y  != null) currentMap.offsetY = data.offset_y;
+  if (data.map_scale != null) currentMap.scale   = data.map_scale;
+  const name = data.map_name || 'unknown';
+    if (!name || name === 'None' || name === '<empty>') {
+    showPlaceholder();
+    mapLoaded = false;
+    mapLabel.textContent = name;
+    currentMapName = null;
+    return;
+  }
+  if (name == currentMapName) return;
+  currentMapName = name;
+  mapLabel.textContent = name;
+  const url = data.map_path ? data.map_path : `/maps/${name}.png`;
+  mapImg.onload = () => {
+    mapImg.style.opacity = .5;
+    hidePlaceholder();
+    mapLoaded = true;
+  };
+  mapImg.onerror = () => {
+    mapImg.style.opacity = 0;
+    showPlaceholder();
+    mapLoaded = false;
+  };
+  mapImg.src = url;
+}
+
+
+try {
+  const socket = io();
+  let pendingPlayers = null;
+  socket.on('connect', () => {
+    lastDataTime = Date.now();
+  });
+  socket.on('map_update',  applyMapUpdate);
+  socket.on('update_data', p => { if (Array.isArray(p)) { pendingPlayers = p; lastDataTime = Date.now(); } });
+  socket.on('draw_radar',  p => { if (Array.isArray(p)) { pendingPlayers = p; lastDataTime = Date.now(); } });
+  
+  
+  function loop() {
+    if (pendingPlayers) { renderPlayers(pendingPlayers); pendingPlayers = null; }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+} catch(e) {
+  showPlaceholder();
+}
+</script>
+</body>
+</html>
