@@ -2,7 +2,6 @@
 
 <p align="center">
   <img src="maps/back.png" alt="Logo" />
-  <img src="maps/showcase.png" alt="ShowCase" />
 </p>
 
 <h3 align="center">📜 Features</h3>
@@ -13,5 +12,9 @@
 - ❤️ HP and armor tracking
 - ⚔️ Weapon and money stats
 - 📱 Responsive design
+
+<p align="center">
+  <img src="maps/showcase.png" alt="ShowCase" width="600" />
+</p>
 
 <hr>
