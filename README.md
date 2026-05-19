@@ -32,8 +32,8 @@
 
 **1. Clone the repository**
 ```bash
-git clone https://github.com/username/repo.git
-cd repo
+https://github.com/stoptoop/WebRadar-CS2
+cd WebRadar-CS2
 ```
 
 **2. Install dependencies**
