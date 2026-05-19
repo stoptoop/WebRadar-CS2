@@ -1,6 +1,5 @@
 from flags import *
 import re
-import sys
 import os
 import ctypes
 import requests
@@ -9,9 +8,8 @@ from memory import *
 import time
 import random 
 import string
-import math
 import threading
-import socketio
+
 
 from flask import Flask, render_template, send_from_directory
 from flask_socketio import SocketIO, emit

@@ -2,13 +2,6 @@ import ctypes
 from ctypes import wintypes
 import psutil
 import struct
-import os
-import re
-import requests
-from bs4 import BeautifulSoup
-from PIL import Image
-import io
-import time
 from flags import AVATAR_SIZE, PROCESS_VM_READ, PROCESS_QUERY_INFORMATION
 
 
